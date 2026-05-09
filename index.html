@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="fr">
+<link rel="manifest" href="manifest.json">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AMAD : DÉFI NAZIH - SURVIVAL MODE</title>
+    <style>
+        :root { --amad-green: #27ae60; --amad-dark: #2c3e50; --amad-red: #e74c3c; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #2c3e50; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        
+        #game-container { position: relative; width: 100vw; height: 100vh; background: #87CEEB; }
+        canvas { display: block; width: 100%; height: 100%; }
+
+        /* HUD - INTERFACE */
+        #ui-layer { 
+            position: absolute; top: 15px; left: 15px; z-index: 100; 
+            color: white; background: rgba(44, 62, 80, 0.9); padding: 12px 20px; 
+            border-radius: 30px; border: 2px solid white; font-weight: bold;
+            display: flex; align-items: center; gap: 15px; pointer-events: none;
+        }
+        #distance-meter {
+            position: absolute; top: 15px; right: 15px; z-index: 100;
+            color: white; background: var(--amad-dark); padding: 10px 20px;
+            border-radius: 15px; border: 2px solid var(--amad-green);
+            font-family: monospace; font-size: 24px; font-weight: bold;
+        }
+        .vrad-badge { background: var(--amad-green); padding: 4px 12px; border-radius: 12px; font-size: 13px; }
+        #hearts-container { display: flex; align-items: center; gap: 5px; }
+        .life-icon { width: 28px; height: 28px; object-fit: contain; }
+
+        /* ÉCRANS */
+        .screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: white; display: none; flex-direction: column; align-items: center; justify-content: center; text-align: center; z-index: 500; padding: 20px; box-sizing: border-box; }
+        .btn { background: var(--amad-green); color: white; border: none; padding: 15px 25px; border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer; width: 100%; max-width: 250px; margin: 8px 0; box-shadow: 0 4px 0 #1e8449; transition: all 0.1s; }
+        .btn:active { transform: translateY(2px); box-shadow: 0 1px 0 #1e8449; }
+        input { padding: 12px; border-radius: 10px; border: 2px solid #ccc; margin-bottom: 15px; width: 80%; max-width: 280px; font-size: 16px; text-align: center; }
+        .preview-img { width: 100px; height: 100px; object-fit: contain; margin: 15px; border: 3px solid var(--amad-green); border-radius: 15px; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <div id="ui-layer">
+        <span class="vrad-badge">VRAD <span id="vrad-count">1</span>/11</span>
+        <div id="hearts-container"></div>
+    </div>
+    
+    <!-- Compteur Chiffré demandé -->
+    <div id="distance-meter"><span id="m-count">0</span> m</div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- MENU PRINCIPAL -->
+    <div id="menu-screen" class="screen" style="display:flex;">
+        <h1 style="color:var(--amad-green); margin-bottom:10px;">DÉFI NAZIH</h1>
+        <p style="color:#666; max-width:400px;">Survis le plus longtemps possible et réponds juste pour valider ton intégrité.</p>
+        <input type="text" id="athlete-name" placeholder="Nom de l'athlète">
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; width: 100%; max-width: 450px;">
+            <button class="btn" onclick="initGame('foot.png', 'bg_foot.jpg')">⚽ FOOTBALL</button>
+            <button class="btn" onclick="initGame('golf.png', 'bg_golf.jpg')">⛳ GOLF</button>
+            <button class="btn" onclick="initGame('basket.png', 'bg_basket.jpg')">🏀 BASKET</button>
+            <button class="btn" onclick="initGame('athle.png', 'bg_athle.jpg')">🏃 ATHLÉ</button>
+        </div>
+    </div>
+
+    <!-- GUIDE -->
+    <div id="guide-screen" class="screen">
+        <h2 id="guide-title" style="color:var(--amad-green)"></h2>
+        <img id="guide-img" class="preview-img" src="">
+        <p id="guide-text" style="max-width:450px; font-size:17px; color:#333;"></p>
+        <button class="btn" onclick="startLevel()">COMMENCER LA SURVIE</button>
+    </div>
+
+    <!-- QUIZ -->
+    <div id="quiz-screen" class="screen">
+        <h2 style="color:var(--amad-red)">COLLISION ! CONTRÔLE</h2>
+        <p id="quiz-q" style="font-weight:bold; font-size:19px;"></p>
+        <div id="quiz-options" style="width:100%; display:flex; flex-direction:column; align-items:center;"></div>
+    </div>
+
+    <!-- VICTOIRE VRAD FINALE -->
+    <div id="win-screen" class="screen">
+        <div style="border: 8px double var(--amad-green); padding: 30px; background: white;">
+            <h2>CERTIFICAT NAZAHA</h2>
+            <h1 id="win-name" style="color:var(--amad-green); text-transform:uppercase;"></h1>
+            <p>Félicitations ! Tu as validé les 11 VRAD avec honneur.</p>
+        </div>
+        <button class="btn" onclick="location.reload()">REJOUER</button>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+let currentLevel = 0, isPlaying = false, lives = 3, athleteName = "", obstacles = [];
+let player = { x: 100, y: 0, targetY: 0 };
+let bgOffset = 0, totalMeters = 0, levelMeters = 0; // Distance comptabilisée en chiffres
+
+const imgPlayer = new Image();
+const imgBG = new Image();
+const imgObs = new Image();
+
+const levels = [
+    { t: "VRAD 1 : PRÉSENCE", i: "Substance interdite trouvée dans le corps.", obs: "obs1.png", q: "Qui est responsable ?", o: ["Moi", "Le Coach"], c: 0 },
+    { t: "VRAD 2 : USAGE", i: "L'usage d'une méthode interdite est banni.", obs: "obs2.png", q: "L'usage est-il sanctionné ?", o: ["Oui", "Non"], c: 0 },
+    { t: "VRAD 3 : REFUS", i: "Refuser un contrôle sans raison est interdit.", obs: "obs3.png", q: "Peux-tu refuser un test ?", o: ["Non", "Oui"], c: 0 },
+    { t: "VRAD 4 : LOCALISATION", i: "Déclare ta position via ADAMS.", obs: "obs4.png", q: "Outil de localisation ?", o: ["ADAMS", "SMS"], c: 0 },
+    { t: "VRAD 5 : FALSIFICATION", i: "Ne modifie jamais ton échantillon.", obs: "obs5.png", q: "Altérer l'urine est permis ?", o: ["Non", "Oui"], c: 0 },
+    { t: "VRAD 6 : POSSESSION", i: "Posséder un produit interdit est une faute.", obs: "obs6.png", q: "La possession est une violation ?", o: ["Vrai", "Faux"], c: 0 },
+    { t: "VRAD 7 : TRAFIC", i: "Vendre des produits est un crime sportif.", obs: "obs7.png", q: "Le trafic est-il grave ?", o: ["Oui", "Non"], c: 0 },
+    { t: "VRAD 8 : ADMINISTRATION", i: "Ne donne jamais de produit à un ami.", obs: "obs8.png", q: "Aider un ami est permis ?", o: ["Non", "Oui"], c: 0 },
+    { t: "VRAD 9 : COMPLICITÉ", i: "Cacher une violation est interdit.", obs: "obs9.png", q: "Masquer le dopage est permis ?", o: ["Non", "Oui"], c: 0 },
+    { t: "VRAD 10 : ASSOCIATION", i: "Travailler avec un banni est interdit.", obs: "obs10.png", q: "Travailler avec un banni ?", o: ["Non", "Oui"], c: 0 },
+    { t: "VRAD 11 : REPRÉSAILLES", i: "Menacer les lanceurs d'alerte est banni.", obs: "obs11.png", q: "L'AMAD protège les témoins ?", o: ["Vrai", "Faux"], c: 0 }
+];
+
+function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    player.y = canvas.height / 2;
+}
+window.addEventListener('resize', resize);
+resize();
+
+canvas.addEventListener('mousemove', e => { if(isPlaying) player.targetY = e.clientY; });
+canvas.addEventListener('touchmove', e => { if(isPlaying) { e.preventDefault(); player.targetY = e.touches[0].clientY; } }, {passive:false});
+
+function updateLives() {
+    const container = document.getElementById("hearts-container");
+    container.innerHTML = "";
+    for(let i=0; i<lives; i++) {
+        const img = document.createElement("img");
+        img.src = "nazih.png"; 
+        img.className = "life-icon";
+        img.onerror = function() { this.src = "https://via.placeholder.com/25?text=H"; };
+        container.appendChild(img);
+    }
+}
+
+function initGame(pImg, bImg) {
+    athleteName = document.getElementById("athlete-name").value || "Athlète";
+    imgPlayer.src = pImg;
+    imgBG.src = bImg;
+    document.getElementById("menu-screen").style.display = "none";
+    currentLevel = 0;
+    lives = 3;
+    totalMeters = 0;
+    updateLives();
+    showGuide();
+}
+
+function showGuide() {
+    isPlaying = false;
+    const lvl = levels[currentLevel];
+    imgObs.src = lvl.obs; 
+    document.getElementById("guide-title").innerText = lvl.t;
+    document.getElementById("guide-text").innerText = lvl.i;
+    document.getElementById("guide-img").src = lvl.obs;
+    document.getElementById("vrad-count").innerText = currentLevel + 1;
+    document.getElementById("guide-screen").style.display = "flex";
+}
+
+function startLevel() {
+    document.getElementById("guide-screen").style.display = "none";
+    obstacles = [];
+    isPlaying = true;
+    requestAnimationFrame(gameLoop);
+}
+
+function gameLoop() {
+    if(!isPlaying) return;
+    ctx.clearRect(0,0,canvas.width, canvas.height);
+
+    // Comptabilisation de la distance tant qu'on survit
+    totalMeters += 0.5; // Augmentation de la distance affichée
+    document.getElementById("m-count").innerText = Math.floor(totalMeters);
+
+    // Fond
+    let scrollSpeed = 3 + (currentLevel * 0.4);
+    bgOffset += scrollSpeed;
+    if(bgOffset >= canvas.width) bgOffset = 0;
+    if(imgBG.complete) {
+        ctx.drawImage(imgBG, -bgOffset, 0, canvas.width, canvas.height);
+        ctx.drawImage(imgBG, canvas.width - bgOffset, 0, canvas.width, canvas.height);
+    }
+
+    // Joueur
+    player.y += (player.targetY - player.y) * 0.12;
+    if(imgPlayer.complete) ctx.drawImage(imgPlayer, player.x-45, player.y-45, 90, 90);
+
+    // Obstacles - Fréquence
+    if(Math.random() < (0.02 + currentLevel * 0.002)) {
+        obstacles.push({x: canvas.width, y: Math.random()*(canvas.height-120)+60});
+    }
+    
+    for(let i=obstacles.length-1; i>=0; i--) {
+        let o = obstacles[i];
+        o.x -= (7 + currentLevel * 0.5); // Vitesse augmente
+        if(imgObs.complete) ctx.drawImage(imgObs, o.x, o.y, 75, 75);
+
+        // NOUVELLE RÈGLE : COLLISION = FIN DE NIVEAU + QUIZ
+        if(Math.hypot(o.x+37-player.x, o.y+37-player.y) < 55) {
+            isPlaying = false; // Le jeu se fige
+            obstacles.splice(i, 1);
+            showQuiz(); // On passe direct au quiz
+            return;
+        }
+        if(o.x < -100) obstacles.splice(i, 1);
+    }
+    requestAnimationFrame(gameLoop);
+}
+
+function showQuiz() {
+    const lvl = levels[currentLevel];
+    document.getElementById("quiz-q").innerText = lvl.q;
+    const box = document.getElementById("quiz-options");
+    box.innerHTML = "";
+    lvl.o.forEach((opt, idx) => {
+        const b = document.createElement("button");
+        b.className = "btn";
+        b.innerText = opt;
+        b.onclick = () => {
+            if(idx === lvl.c) {
+                // RÉPONSE CORRECTE : NIVEAU RÉUSSI
+                currentLevel++;
+                document.getElementById("quiz-screen").style.display = "none";
+                if(currentLevel < levels.length) showGuide();
+                else {
+                    document.getElementById("win-name").innerText = athleteName;
+                    document.getElementById("win-screen").style.display = "flex";
+                }
+            } else {
+                // RÉPONSE FAUSSE : PERTE DE VIE + REDÉMARRAGE
+                lives--;
+                updateLives();
+                if(lives <= 0) {
+                    alert("Game Over ! Carrière suspendue.");
+                    location.reload();
+                } else {
+                    alert("Erreur ! Tu repars du début pour cette VRAD.");
+                    totalMeters = Math.max(0, totalMeters - 100); // Pénalité optionnelle
+                    document.getElementById("quiz-screen").style.display = "none";
+                    startLevel(); // On recommence le niveau
+                }
+            }
+        };
+        box.appendChild(b);
+    });
+    document.getElementById("quiz-screen").style.display = "flex";
+}
+</script>
+</body>
+</html>
